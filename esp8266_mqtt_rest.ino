@@ -283,8 +283,8 @@ void webHandleConfig(){
   s += st;
   s += "<form method='get' action='a'>";
   s += "<label>SSID: </label><input name='ssid' length=32><label> Pass: </label><input name='pass' type='password' length=64></br>";
-  s += "The following is not ready yet!</br>";
   s += "<label>IOT mode: </label><input type='radio' name='iot' value='0'> HTTP<input type='radio' name='iot' value='1' checked> MQTT</br>";
+  s += "MQTT parameters:</br>";
   s += "<label>MQTT Broker IP/DNS: </label><input name='host' length=15></br>";
   s += "<label>MQTT Broker user name: </label><input name='mqttuser' length=32></br>";
   s += "<label>MQTT Broker password: </label><input name='mqttpass' type='password' length=64></br>";
