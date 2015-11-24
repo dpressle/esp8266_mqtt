@@ -10,7 +10,7 @@
  *    http://server_ip/cleareeprom -> Will reset the WiFi setting and rest to configure mode as AP
  *  server_ip is the IP address of the ESP8266 module, will be 
  *  printed to Serial when the module is connected. (most likly it will be 192.168.4.1)
- * To force AP config mode, press button 20 Secs!
+ * To force AP config mode, press button 10 Secs!
  *  For several snippets used, the credit goes to:
  *  - https://github.com/esp8266
  *  - https://github.com/chriscook8/esp-arduino-apboot
@@ -35,12 +35,13 @@ extern "C" {
 }
 
 //***** Settings declare ********************************************************************************************************* 
-String ssid = "WiFiSwitch"; //The ssid when in AP mode
-String clientName ="WiFiSwitch"; //The MQTT ID -> MAC adress will be added to make it kind of unique
-String FQDN ="WiFiSwitch.local"; //The DNS hostname - Does not work yet?
-int iotMode=0; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
+String ssid = "ESP"; //The ssid when in AP mode
+String clientName ="ESP"; //The MQTT ID -> MAC adress will be added to make it kind of unique
+//String FQDN ="ESP8266.local"; //The DNS hostname - Does not work yet?
+//int iotMode=0; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
 const int outPin = 0; //output pin
+//const int ledPin = 2; //led light indicator pin
 const int inPin = 2;  // input pin (push button)
 
 const int restartDelay = 3; //minimal time for button press to reset in sec
@@ -48,8 +49,9 @@ const int humanpressDelay = 50; // the delay in ms untill the press should be ha
 const int resetDelay = 5; //Minimal time for button press to reset all settings and boot to config mode in sec
 
 const int debug = 0; //Set to 1 to get more log to serial
+const int MQTT_PORT = 1883;
 //##### Object instances ##### 
-MDNSResponder mdns;
+//MDNSResponder mdns;
 ESP8266WebServer server(80);
 WiFiClient wifiClient;
 PubSubClient mqttClient;
@@ -69,7 +71,7 @@ String st; //WiFi Stations HTML list
 char buf[40]; //For MQTT data recieve
 
 //To be read from EEPROM Config
-String esid;
+String esid = "";
 String epass = "";
 String pubTopic;
 String subTopic;
@@ -81,17 +83,20 @@ String mqttServerPassword = "";
 void setup() {
   Serial.begin(115200);
   delay(10);
-  // prepare GPIO 0
+  // prepare GPIO 13
   digitalWrite(outPin, LOW);
   pinMode(outPin, OUTPUT);
-  // prepare GPIO 2
+  // prepare GPIO 14
+  //digitalWrite(ledPin, LOW);
+  //pinMode(ledPin, OUTPUT);
+  // prepare GPIO 12
   pinMode(inPin, INPUT_PULLUP);
   btn_timer.attach(0.05, btn_handle);
   loadConfig();
-  if(debug==1) Serial.println("DEBUG: loadConfig() passed");
+  //if(debug==1) Serial.println("DEBUG: loadConfig() passed");
   // Connect to WiFi network
   initWiFi();
-  if(debug==1) Serial.println("DEBUG: initWiFi() passed");
+  //if(debug==1) Serial.println("DEBUG: initWiFi() passed");
   if(debug==1) Serial.println("DEBUG: Starting the main loop");
 }
 
@@ -116,44 +121,29 @@ void loadConfig(){
       epass += char(EEPROM.read(i));
     }
   Serial.print("PASS: ");
-  Serial.println(epass);  
-  
-  //len: 1+96=97
-  String eiot = "";
-  //addr += EEPROM.get(addr, iotMode);
-  for (int i = 96; i < 97; ++i)
-    {
-      eiot += char(EEPROM.read(i));
-    }
-  Serial.print("IOT Mode: ");
-  if(eiot=="1"){
-    iotMode=1;
-  }else{
-    iotMode=0;
-  }
-  Serial.println(iotMode); 
+  Serial.println(epass);
     
-  //len: 64+97=161
+  //len: 64+96=160
   //addr += EEPROM.get(addr, subTopic);
-  for (int i = 97; i < 161; ++i)
+  for (int i = 96; i < 160; ++i)
     {
       subTopic += char(EEPROM.read(i));
     }
   Serial.print("MQTT subscribe topic: ");
   Serial.println(subTopic); 
   
-  //len: 64+161=225
+  //len: 64+160=224
   //addr += EEPROM.get(addr, pubTopic);
-  for (int i = 161; i < 225; ++i)
+  for (int i = 160; i < 224; ++i)
     {
       pubTopic += char(EEPROM.read(i));
     }
   Serial.print("MQTT publish topic: ");
   Serial.println(pubTopic); 
   
-  //len: 15+225=240
+  //len: 15+224=239
   //addr += EEPROM.get(addr, mqttServer);
-  for (int i = 225; i < 240; ++i)
+  for (int i = 224; i < 239; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServer += char(EEPROM.read(i)); // Ignore spaces
@@ -161,9 +151,9 @@ void loadConfig(){
   Serial.print("MQTT Broker IP: ");
   Serial.println(mqttServer);     
 
-  //len: 32+240=272
+  //len: 32+239=271
   //addr += EEPROM.get(addr, mqttServerUserName);
-  for (int i = 240; i < 272; ++i)
+  for (int i = 239; i < 271; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServerUserName += char(EEPROM.read(i)); // Ignore spaces
@@ -171,9 +161,9 @@ void loadConfig(){
   Serial.print("MQTT Broker user name: ");
   Serial.println(mqttServerUserName);     
 
-  //len: 64+272=336
+  //len: 64+271=335
   //addr += EEPROM.get(addr, mqttServerPassword);
-  for (int i = 272; i < 336; ++i)
+  for (int i = 271; i < 335; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServerPassword += char(EEPROM.read(i)); // Ignore spaces
@@ -188,21 +178,27 @@ void initWiFi(){
   Serial.println();
   Serial.println("Startup");
   esid.trim();
-  if ( esid.length() > 1 ) {
-      // test esid 
-      WiFi.disconnect();
-      delay(100);
-      WiFi.mode(WIFI_STA);
-      Serial.print("Connecting to WiFi ");
-      Serial.println(esid);
-      WiFi.begin(esid.c_str(), epass.c_str());
+  //Serial.println(esid);
+  if ( esid != "") {
+    // test esid 
+    WiFi.disconnect();
+    delay(100);
+    WiFi.mode(WIFI_STA);
+    Serial.print("Connecting to WiFi ");
+    Serial.println(esid);
+    WiFi.begin(esid.c_str(), epass.c_str());
+//    while(1) {
       if ( testWifi() == 20 ) { 
           launchWeb(0);
-          return;
+         // return;
       }
+      //Serial.print(".");
+      //delay(1000);
+    //}
+  } else {
+    Serial.println("Opening AP");
+    setupAP();   
   }
-  Serial.println("Opening AP");
-  setupAP();   
 }
 
 int testWifi(void) {
@@ -219,52 +215,79 @@ int testWifi(void) {
 } 
 
 void launchWeb(int webtype) {
-    Serial.println("");
-    Serial.println("WiFi connected");    
-    //Start the web server or MQTT
-     if (webtype==1 || iotMode==0){ //in config mode or WebControle
-        if (webtype==1) {           
-          webtypeGlob == 1;
-          Serial.println(WiFi.softAPIP());
-          server.on("/", webHandleConfig);
-          server.on("/a", webHandleConfigSave);          
-        } else {
-          //setup DNS since we are a client in WiFi net
-          if (!mdns.begin((char*) FQDN.c_str(), WiFi.localIP())) {
-            Serial.println("Error setting up MDNS responder!");
-            while(1) { 
-              delay(1000);
-            }
-          } else {
-            Serial.println("mDNS responder started");
-          }          
-          Serial.println(WiFi.localIP());
-          server.on("/", webHandleRoot);  
-          server.on("/cleareeprom", webHandleClearRom);
-          server.on("/gpio", webHandleGpio);
-        }
-        //server.onNotFound(webHandleRoot);
-        server.begin();
-        Serial.println("Web server started");   
-        webtypeGlob=webtype; //Store global to use in loop()
-      } else if(webtype!=1 && iotMode==1){ // in MQTT and not in config mode     
-        mqttClient.setBrokerDomain((char*)mqttServer.c_str());
-        mqttClient.setPort(1883);
-        mqttClient.setCallback(mqtt_arrived);
-        mqttClient.setClient(wifiClient);
-        if (WiFi.status() == WL_CONNECTED){
-          if (!connectMQTT()){
-              delay(2000);
-              if (!connectMQTT()){                            
-                Serial.println("Could not connect MQTT.");
-                Serial.println("Starting web server instead.");
-                iotMode=0;
-                launchWeb(0);
-                webtypeGlob=webtype;
-              }
-            }                    
-          }
-    }
+  Serial.println("");
+  Serial.println("WiFi connected"); 
+  webtypeGlob=webtype; //Store global to use in loop()   
+  //Start the web server or MQTT
+  if (webtype==1){          
+    Serial.println(WiFi.softAPIP());
+    server.on("/", webHandleConfig);
+    server.on("/a", webHandleConfigSave);          
+    server.begin();
+    Serial.println("Web server started");   
+  } else {// start MQTT client    
+    mqttClient.setBrokerDomain((char*)mqttServer.c_str());
+    mqttClient.setPort(MQTT_PORT);
+    mqttClient.setCallback(mqtt_arrived);
+    mqttClient.setClient(wifiClient);
+   // webtypeGlob=0; //Store global to use in loop()
+  }
+}
+
+void setupAP(void) {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+  int n = WiFi.scanNetworks();
+  Serial.println("scan done");
+  if (n == 0){
+    Serial.println("no networks found");
+    st ="<b>No networks found:</b>";
+  } else {
+    Serial.print(n);
+    Serial.println(" Networks found");
+    st = "<ul>";
+    for (int i = 0; i < n; ++i)
+     {
+      // Print SSID and RSSI for each network found
+      Serial.print(i + 1);
+      Serial.print(": ");
+      Serial.print(WiFi.SSID(i));
+      Serial.print(" (");
+      Serial.print(WiFi.RSSI(i));
+      Serial.print(")");
+      Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE)?" (OPEN)":"*");
+      
+      // Print to web SSID and RSSI for each network found
+      st += "<li>";
+      st +=i + 1;
+      st += ": ";
+      st += WiFi.SSID(i);
+      st += " (";
+      st += WiFi.RSSI(i);
+      st += ")";
+      st += (WiFi.encryptionType(i) == ENC_TYPE_NONE)?" (OPEN)":"*";
+      st += "</li>";
+      delay(10);
+     }
+    st += "</ul>";
+  }
+  Serial.println(""); 
+  WiFi.disconnect();
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  //Build SSID
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  ssid += "-";
+  ssid += String(mac[6 - 2], HEX) +
+                 String(mac[6 - 1], HEX);
+  
+  WiFi.softAP((char*) ssid.c_str());
+  WiFi.begin((char*) ssid.c_str()); // not sure if need but works
+  Serial.print("Access point started with name ");
+  Serial.println(ssid);
+  launchWeb(1);
 }
 
 void webHandleConfig(){
@@ -283,8 +306,8 @@ void webHandleConfig(){
   s += st;
   s += "<form method='get' action='a'>";
   s += "<label>SSID: </label><input name='ssid' length=32><label> Pass: </label><input name='pass' type='password' length=64></br>";
-  s += "<label>IOT mode: </label><input type='radio' name='iot' value='0'> HTTP<input type='radio' name='iot' value='1' checked> MQTT</br>";
-  s += "MQTT parameters:</br>";
+ // s += "The following is not ready yet!</br>";
+  //s += "<label>IOT mode: </label><input type='radio' name='iot' value='0'> HTTP<input type='radio' name='iot' value='1' checked> MQTT</br>";
   s += "<label>MQTT Broker IP/DNS: </label><input name='host' length=15></br>";
   s += "<label>MQTT Broker user name: </label><input name='mqttuser' length=32></br>";
   s += "<label>MQTT Broker password: </label><input name='mqttpass' type='password' length=64></br>";
@@ -294,13 +317,6 @@ void webHandleConfig(){
   s += "\r\n\r\n";
   Serial.println("Sending 200");  
   server.send(200, "text/html", s); 
-}
-
-String replaceSpecialChars(String str) {
-  str.replace("%40", "@");
-  str.replace("%20", " ");
-  str.replace("%2F","/");
-  return str;
 }
 
 void webHandleConfigSave(){
@@ -318,15 +334,14 @@ void webHandleConfigSave(){
 
   String qpass;
   qpass = server.arg("pass");
-  //qpass.replace("%2F","/");
   qpass = replaceSpecialChars(qpass);
   Serial.println(qpass);
   Serial.println("");
 
-  String qiot;
-  qiot = server.arg("iot");
-  Serial.println(qiot);
-  Serial.println("");
+ // String qiot;
+ // qiot = server.arg("iot");
+ // Serial.println(qiot);
+  //Serial.println("");
   
   String qsubTop;
   qsubTop = server.arg("subtop");
@@ -379,21 +394,12 @@ void webHandleConfigSave(){
       Serial.print(qpass[i]); 
     }  
   Serial.println("");
-    
-  Serial.println("writing eeprom iot."); 
-  //addr += EEPROM.put(addr, qiot);
-  for (int i = 0; i < qiot.length(); ++i)
-    {
-      EEPROM.write(96+i, qiot[i]);
-      Serial.print(qiot[i]); 
-    } 
-  Serial.println("");
-    
+
   Serial.println("writing eeprom subTop."); 
   //addr += EEPROM.put(addr, qsubTop);
   for (int i = 0; i < qsubTop.length(); ++i)
     {
-      EEPROM.write(97+i, qsubTop[i]);
+      EEPROM.write(96+i, qsubTop[i]);
       Serial.print(qsubTop[i]); 
     } 
   Serial.println("");
@@ -402,7 +408,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qpubTop);
   for (int i = 0; i < qpubTop.length(); ++i)
     {
-      EEPROM.write(161+i, qpubTop[i]);
+      EEPROM.write(160+i, qpubTop[i]);
       Serial.print(qpubTop[i]); 
     } 
   Serial.println("");
@@ -411,7 +417,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttip);
   for (int i = 0; i < qmqttip.length(); ++i)
     {
-      EEPROM.write(225+i, qmqttip[i]);
+      EEPROM.write(224+i, qmqttip[i]);
       Serial.print(qmqttip[i]); 
     } 
   Serial.println("");  
@@ -420,7 +426,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttuser);
   for (int i = 0; i < qmqttuser.length(); ++i)
     {
-      EEPROM.write(240+i, qmqttuser[i]);
+      EEPROM.write(239+i, qmqttuser[i]);
       Serial.print(qmqttuser[i]); 
     } 
   Serial.println("");  
@@ -429,7 +435,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttpass);
   for (int i = 0; i < qmqttpass.length(); ++i)
     {
-      EEPROM.write(272+i, qmqttpass[i]);
+      EEPROM.write(271+i, qmqttpass[i]);
       Serial.print(qmqttpass[i]); 
     } 
   Serial.println("");  
@@ -439,105 +445,6 @@ void webHandleConfigSave(){
   EEPROM.end();
   Serial.println("Settings written, restarting!"); 
   system_restart();
-}
-
-void webHandleRoot(){
-  String s;
-  s = "<p>Hello from ESP8266";
-  s += "</p>";
-  s += "<a href=\"/gpio\">Controle GPIO</a><br />";
-  s += "<a href=\"/cleareeprom\">Clear settings an boot into Config mode</a><br />";
-  s += "\r\n\r\n";
-  Serial.println("Sending 200");  
-  server.send(200, "text/html", s); 
-}
-
-void webHandleClearRom(){
-  String s;
-  s = "<p>Clearing the EEPROM and reset to configure new wifi<p>";
-  s += "</html>\r\n\r\n";
-  Serial.println("Sending 200"); 
-  server.send(200, "text/html", s); 
-  Serial.println("clearing eeprom");
-  clearEEPROM();
-  delay(10);
-  Serial.println("Done, restarting!");
-  system_restart();
-}
-
-void webHandleGpio(){
-  String s;
-   // Set GPIO according to the request
-    if (server.arg("state")=="1" || server.arg("state")=="0" ) {
-      int state = server.arg("state").toInt();
-      digitalWrite(outPin, state);
-      Serial.print("Light switched via web request to  ");      
-      Serial.println(state);      
-    }
-    s = "Light is now ";
-    s += (digitalRead(outPin))?"on":"off";
-    s += "<p>Change to <form action='gpio'><input type='radio' name='state' value='1' ";
-    s += (digitalRead(outPin))?"checked":"";
-    s += ">On<input type='radio' name='state' value='0' ";
-    s += (digitalRead(outPin))?"":"checked";
-    s += ">Off <input type='submit' value='Submit'></form></p>";   
-    server.send(200, "text/html", s);    
-}
-
-void setupAP(void) {
-  
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
-  int n = WiFi.scanNetworks();
-  Serial.println("scan done");
-  if (n == 0){
-    Serial.println("no networks found");
-    st ="<b>No networks found:</b>";
-  } else {
-    Serial.print(n);
-    Serial.println(" Networks found");
-    st = "<ul>";
-    for (int i = 0; i < n; ++i)
-     {
-      // Print SSID and RSSI for each network found
-      Serial.print(i + 1);
-      Serial.print(": ");
-      Serial.print(WiFi.SSID(i));
-      Serial.print(" (");
-      Serial.print(WiFi.RSSI(i));
-      Serial.print(")");
-      Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE)?" (OPEN)":"*");
-      
-      // Print to web SSID and RSSI for each network found
-      st += "<li>";
-      st +=i + 1;
-      st += ": ";
-      st += WiFi.SSID(i);
-      st += " (";
-      st += WiFi.RSSI(i);
-      st += ")";
-      st += (WiFi.encryptionType(i) == ENC_TYPE_NONE)?" (OPEN)":"*";
-      st += "</li>";
-      delay(10);
-     }
-    st += "</ul>";
-  }
-  Serial.println(""); 
-  WiFi.disconnect();
-  delay(100);
-  WiFi.mode(WIFI_AP);
-  //Build SSID
-  //uint8_t mac[6];
-  //WiFi.macAddress(mac);
-  //ssid += "-";
-  //ssid += macToStr(mac);
-  
-  WiFi.softAP((char*) ssid.c_str());
-  WiFi.begin((char*) ssid.c_str()); // not sure if need but works
-  Serial.print("Access point started with name ");
-  Serial.println(ssid);
-  launchWeb(1);
 }
 
 void btn_handle() {
@@ -555,13 +462,14 @@ void btn_handle() {
       Serial.print("Switching light to "); 
       Serial.println(!digitalRead(outPin));
       digitalWrite(outPin, !digitalRead(outPin)); 
-      if(iotMode==1 && mqttClient.connected()) toPub=1;
+      if(mqttClient.connected())
+        toPub=1;
     } else if (count > (restartDelay/0.05) && count <= (resetDelay/0.05)){ //pressed 3 secs (60*0.05s)
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
       Serial.println(" Sec. Restarting!"); 
       system_restart();
-    } else if (count > (resetDelay/0.05)){ //pressed 20 secs
+    } else if (count > (resetDelay/0.05)){ //pressed 10 secs
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
       Serial.println(" Sec."); 
@@ -573,6 +481,13 @@ void btn_handle() {
 }
 
 //-------------------------------- Help functions ---------------------------
+String replaceSpecialChars(String str) {
+  str.replace("%40", "@");
+  str.replace("%20", " ");
+  str.replace("%2F","/");
+  return str;
+}
+
 void clearEEPROM(){
   EEPROM.begin(512);
   // write a 0 to all 512 bytes of the EEPROM
@@ -581,7 +496,7 @@ void clearEEPROM(){
   }
   delay(200);
   EEPROM.commit(); 
-  EEPROM.end(); 
+  EEPROM.end();
 }
 
 String macToStr(const uint8_t* mac) {
@@ -602,13 +517,12 @@ boolean connectMQTT(){
   
   uint8_t mac[6];
   WiFi.macAddress(mac);
-  clientName += "-";
-  clientName += macToStr(mac);
+  String mqttClintName = clientName + "-" + macToStr(mac);
   
   Serial.print("Connecting to MQTT server ");
   Serial.print(mqttServer);
   Serial.print(" as ");
-  Serial.println(clientName);
+  Serial.println(mqttClintName);
   
   if (mqttClient.connect((char*) clientName.c_str(), (char*) mqttServerUserName.c_str(), (char*) mqttServerPassword.c_str())) {
     Serial.println("Connected to MQTT broker");
@@ -674,7 +588,7 @@ boolean pubState(){ //Publish the current state of the light
       }
     }
     if (mqttClient.connected()){      
-      String state = (digitalRead(outPin))?"1":"0";
+      String state = (digitalRead(outPin))?"true":"false";
         Serial.println("To publish state " + state );  
       if (mqttClient.publish((char*) pubTopic.c_str(), (char*) state.c_str())) {
         Serial.println("Publish state OK");        
@@ -688,36 +602,31 @@ boolean pubState(){ //Publish the current state of the light
          Serial.println("No MQTT connection.");        
      }    
 }
+
 //-------------------------------- Main loop ---------------------------
 void loop() {
-  if(debug==1) Serial.println("DEBUG: loop() begin");
+  //if(debug==1) Serial.println("DEBUG: loop() begin");
   if(eepromToClear==1){
-    if(debug==1) Serial.println("DEBUG: loop() clear EEPROM flag set!");
+    //if(debug==1) Serial.println("DEBUG: loop() clear EEPROM flag set!");
     clearEEPROM();
     delay(1000);
     system_restart();
   }
-  if(debug==1) Serial.println("DEBUG: eeprom reset check passed");  
-  if (WiFi.status() == WL_CONNECTED || webtypeGlob == 1){
-    if(debug==1) Serial.println("DEBUG: loop() wifi connected & webServer ");
-    if (iotMode==0 || webtypeGlob == 1){
-      if(debug==1) Serial.println("DEBUG: loop() Web mode requesthandling ");
-      server.handleClient();
-      //mdns.update(); we get problems with this.
-      delay(10);
-    } else if (iotMode==1 && webtypeGlob != 1){
-          if(debug==1) Serial.println("DEBUG: loop() MQTT mode requesthandling ");
-          if (!connectMQTT()){
-              delay(200);
-          }                    
-          if (mqttClient.connected()){
-              mqtt_handler();
-          }
+  //if(debug==1) Serial.println("DEBUG: eeprom reset check passed");  
+  if (webtypeGlob == 1) {
+     server.handleClient();
+     delay(10);
+  } else if (WiFi.status() == WL_CONNECTED){
+    if (!connectMQTT()){
+      delay(200);
+    }                    
+    if (mqttClient.connected()){
+      mqtt_handler();
     }
-  } else{
-    if(debug==1) Serial.println("DEBUG: loop - WiFi not connected");  
+  } else {
+    //if(debug==1) Serial.println("DEBUG: loop - WiFi not connected");  
     delay(1000);
     initWiFi(); //Try to connect again
   }
-    if(debug==1) Serial.println("DEBUG: loop() end");
+    //if(debug==1) Serial.println("DEBUG: loop() end");
 }
