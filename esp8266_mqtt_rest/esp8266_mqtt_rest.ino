@@ -33,19 +33,22 @@
 extern "C" {
   #include "user_interface.h" //Needed for the reset command
 }
-
+  
 //***** Settings declare ********************************************************************************************************* 
-String ssid = "WiFiSwitch"; //The ssid when in AP mode
-String clientName ="WiFiSwitch"; //The MQTT ID -> MAC adress will be added to make it kind of unique
-String FQDN ="WiFiSwitch.local"; //The DNS hostname - Does not work yet?
+String ssid = "ESP"; //The ssid when in AP mode
+String clientName ="ESP"; //The MQTT ID -> MAC adress will be added to make it kind of unique
+String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
 int iotMode=0; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
-const int outPin = 0; //output pin
-const int inPin = 2;  // input pin (push button)
+const int outPin = 13; //output pin
+const int wifiLed = 16; //led light indicator pin for wifi connected status
+const int mqttLed = 14; //led light indicator pin for mqtt connected status
+const int inPin = 12;  // input pin (push button)
 
 const int restartDelay = 3; //minimal time for button press to reset in sec
 const int humanpressDelay = 50; // the delay in ms untill the press should be handled as a normal push by human. Button debouce. !!! Needs to be less than restartDelay & resetDelay!!!
-const int resetDelay = 5; //Minimal time for button press to reset all settings and boot to config mode in sec
+const int resetDelay = 20; //Minimal time for button press to reset all settings and boot to config mode in sec
+const int configDelay = 10;
 
 const int debug = 0; //Set to 1 to get more log to serial
 //##### Object instances ##### 
@@ -54,7 +57,7 @@ ESP8266WebServer server(80);
 WiFiClient wifiClient;
 PubSubClient mqttClient;
 Ticker btn_timer;
-
+Ticker led_timer;
 
 //##### Flags ##### They are needed because the loop needs to continue and cant wait for long tasks!
 int rstNeed=0;   // Restart needed to apply new settings
@@ -79,20 +82,22 @@ String mqttServerPassword = "";
   
 //-------------- void's -------------------------------------------------------------------------------------
 void setup() {
-  Serial.begin(115200);
-  delay(10);
-  // prepare GPIO 0
-  digitalWrite(outPin, LOW);
-  pinMode(outPin, OUTPUT);
-  // prepare GPIO 2
-  pinMode(inPin, INPUT_PULLUP);
-  btn_timer.attach(0.05, btn_handle);
-  loadConfig();
-  if(debug==1) Serial.println("DEBUG: loadConfig() passed");
-  // Connect to WiFi network
-  initWiFi();
-  if(debug==1) Serial.println("DEBUG: initWiFi() passed");
-  if(debug==1) Serial.println("DEBUG: Starting the main loop");
+	Serial.begin(115200);
+	delay(10);
+	// prepare OUTPUT pins
+	digitalWrite(outPin, LOW);
+	pinMode(outPin, OUTPUT);
+	digitalWrite(wifiLed, LOW);
+	pinMode(wifiLed, OUTPUT);
+	digitalWrite(mqttLed, LOW);
+	pinMode(mqttLed, OUTPUT);
+	btn_timer.attach(0.05, btn_handle);
+	loadConfig();
+	if(debug==1) Serial.println("DEBUG: loadConfig() passed");
+	// Connect to WiFi network
+	initWiFi();
+	if(debug==1) Serial.println("DEBUG: initWiFi() passed");
+	if(debug==1) Serial.println("DEBUG: Starting the main loop");
 }
 
 void loadConfig(){
@@ -185,7 +190,6 @@ void loadConfig(){
 
 void initWiFi(){
   Serial.println();
-  Serial.println();
   Serial.println("Startup");
   esid.trim();
   if ( esid.length() > 1 ) {
@@ -200,20 +204,25 @@ void initWiFi(){
           launchWeb(0);
           return;
       }
+  } else {
+	Serial.println("Opening AP");
+	setupAP();
   }
-  Serial.println("Opening AP");
-  setupAP();   
 }
 
 int testWifi(void) {
   int c = 0;
   Serial.println("Wifi test...");  
   while ( c < 30 ) {
-    if (WiFi.status() == WL_CONNECTED) { return(20); } 
+    if (WiFi.status() == WL_CONNECTED) { 
+		digitalWrite(wifiLed, HIGH);
+		return(20); 
+	} 
     delay(500);
     Serial.print(".");    
     c++;
   }
+  digitalWrite(wifiLed, LOW);
   Serial.println("WiFi Connect timed out");
   return(10);
 } 
@@ -281,8 +290,9 @@ void webHandleConfig(){
   s += ipStr;
   s += "<p>";
   s += st;
-  s += "<form method='get' action='a'>";
-  s += "<label>SSID: </label><input name='ssid' length=32><label> Pass: </label><input name='pass' type='password' length=64></br>";
+  s += "<form method='post' action='a'>";
+  s += "<label>SSID: </label><input name='ssid' length=32></br>";
+  s += "<label> Pass: </label><input name='pass' type='password' length=64></br>";
   s += "<label>IOT mode: </label><input type='radio' name='iot' value='0'> HTTP<input type='radio' name='iot' value='1' checked> MQTT</br>";
   s += "MQTT parameters:</br>";
   s += "<label>MQTT Broker IP/DNS: </label><input name='host' length=15></br>";
@@ -311,8 +321,7 @@ void webHandleConfigSave(){
   Serial.println("clearing EEPROM.");
   clearEEPROM();
   String qsid; 
-  qsid = server.arg("ssid");
-  qsid.replace("%2F","/");
+  qsid = replaceSpecialChars(server.arg("ssid"));
   Serial.println(qsid);
   Serial.println("");
 
@@ -485,7 +494,7 @@ void webHandleGpio(){
 }
 
 void setupAP(void) {
-  
+  led_timer.attach(1, led_handle);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(100);
@@ -532,12 +541,19 @@ void setupAP(void) {
   //WiFi.macAddress(mac);
   //ssid += "-";
   //ssid += macToStr(mac);
-  
-  WiFi.softAP((char*) ssid.c_str());
-  WiFi.begin((char*) ssid.c_str()); // not sure if need but works
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  String ssidClintName = ssid + "-" + macToStr(mac);
+	
+  WiFi.softAP((char*) ssidClintName.c_str());
+  WiFi.begin((char*) ssidClintName.c_str()); // not sure if need but works
   Serial.print("Access point started with name ");
-  Serial.println(ssid);
+  Serial.println(ssidClintName);
   launchWeb(1);
+}
+
+void led_handle() {
+	digitalWrite(wifiLed, !digitalRead(wifiLed));
 }
 
 void btn_handle() {
@@ -556,18 +572,24 @@ void btn_handle() {
       Serial.println(!digitalRead(outPin));
       digitalWrite(outPin, !digitalRead(outPin)); 
       if(iotMode==1 && mqttClient.connected()) toPub=1;
-    } else if (count > (restartDelay/0.05) && count <= (resetDelay/0.05)){ //pressed 3 secs (60*0.05s)
+    } else if (count > (restartDelay/0.05) && count <= (configDelay/0.05)){ //pressed 3 secs (60*0.05s)
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
       Serial.println(" Sec. Restarting!"); 
       system_restart();
-    } else if (count > (resetDelay/0.05)){ //pressed 20 secs
+    }  else if (count > (configDelay/0.05) && count <= (resetDelay/0.05)){ //pressed 10 secs
+      Serial.print("button pressed "); 
+      Serial.print(count*0.05); 
+      Serial.println("Opening AP");
+		setupAP();
+      }else if (count > (resetDelay/0.05)){ //pressed 20 secs
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
       Serial.println(" Sec."); 
       Serial.println(" Clearing EEPROM and resetting!");       
       eepromToClear=1;
       }
+	 
     count=0; //reset since we are at high
   }
 }
@@ -597,9 +619,10 @@ String macToStr(const uint8_t* mac) {
 //-------------------------------- MQTT functions ---------------------------
 boolean connectMQTT(){
   if (mqttClient.connected()){
+	  digitalWrite(mqttLed, HIGH);
     return true;
   }  
-  
+  digitalWrite(mqttLed, LOW);
   uint8_t mac[6];
   WiFi.macAddress(mac);
   clientName += "-";
@@ -674,7 +697,7 @@ boolean pubState(){ //Publish the current state of the light
       }
     }
     if (mqttClient.connected()){      
-      String state = (digitalRead(outPin))?"1":"0";
+      String state = (digitalRead(outPin))?"true":"false";
         Serial.println("To publish state " + state );  
       if (mqttClient.publish((char*) pubTopic.c_str(), (char*) state.c_str())) {
         Serial.println("Publish state OK");        
