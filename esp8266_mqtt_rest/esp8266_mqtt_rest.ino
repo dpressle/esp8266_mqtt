@@ -23,7 +23,7 @@
  */
 
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
+//#include <ESP8266mDNS.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
@@ -37,7 +37,7 @@ extern "C" {
 //***** Settings declare ********************************************************************************************************* 
 String ssid = "ESP"; //The ssid when in AP mode
 String clientName ="ESP"; //The MQTT ID -> MAC adress will be added to make it kind of unique
-String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
+//String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
 int iotMode=0; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
 const int outPin = 13; //output pin
@@ -52,7 +52,7 @@ const int resetDelay = 10; //Minimal time for button press to reset all settings
 
 const int debug = 0; //Set to 1 to get more log to serial
 //##### Object instances ##### 
-MDNSResponder mdns;
+//MDNSResponder mdns;
 ESP8266WebServer server(80);
 WiFiClient wifiClient;
 PubSubClient mqttClient;
@@ -239,14 +239,14 @@ void launchWeb(int webtype) {
           server.on("/a", webHandleConfigSave);          
         } else {
           //setup DNS since we are a client in WiFi net
-          if (!mdns.begin((char*) FQDN.c_str(), WiFi.localIP())) {
-            Serial.println("Error setting up MDNS responder!");
-            while(1) { 
-              delay(1000);
-            }
-          } else {
-            Serial.println("mDNS responder started");
-          }          
+         // if (!mdns.begin((char*) FQDN.c_str(), WiFi.localIP())) {
+          //  Serial.println("Error setting up MDNS responder!");
+          //  while(1) { 
+          //    delay(1000);
+         //   }
+        //  } else {
+        //    Serial.println("mDNS responder started");
+       //   }          
           Serial.println(WiFi.localIP());
           server.on("/", webHandleRoot);  
           server.on("/cleareeprom", webHandleClearRom);
