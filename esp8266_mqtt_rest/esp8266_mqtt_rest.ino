@@ -38,7 +38,7 @@ extern "C" {
 String ssid = "ESP"; //The ssid when in AP mode
 String clientName ="ESP"; //The MQTT ID -> MAC adress will be added to make it kind of unique
 //String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
-int iotMode=0; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
+int iotMode=1; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
 const int outPin = 13; //output pin
 const int wifiLed = 16; //led light indicator pin for wifi connected status
@@ -124,23 +124,23 @@ void loadConfig(){
   Serial.println(epass);  
   
   //len: 1+96=97
-  String eiot = "";
+  //String eiot = "";
   //addr += EEPROM.get(addr, iotMode);
-  for (int i = 96; i < 97; ++i)
-    {
-      eiot += char(EEPROM.read(i));
-    }
-  Serial.print("IOT Mode: ");
-  if(eiot=="1"){
-    iotMode=1;
-  }else{
-    iotMode=0;
-  }
-  Serial.println(iotMode); 
+  //for (int i = 96; i < 97; ++i)
+  //  {
+  //    eiot += char(EEPROM.read(i));
+  //  }
+ // Serial.print("IOT Mode: ");
+ // if(eiot=="1"){
+ //   iotMode=1;
+ // }else{
+ //   iotMode=0;
+//  }
+//  Serial.println(iotMode); 
     
   //len: 64+97=161
   //addr += EEPROM.get(addr, subTopic);
-  for (int i = 97; i < 161; ++i)
+  for (int i = 96; i < 160; ++i)
     {
       subTopic += char(EEPROM.read(i));
     }
@@ -149,7 +149,7 @@ void loadConfig(){
   
   //len: 64+161=225
   //addr += EEPROM.get(addr, pubTopic);
-  for (int i = 161; i < 225; ++i)
+  for (int i = 160; i < 224; ++i)
     {
       pubTopic += char(EEPROM.read(i));
     }
@@ -158,7 +158,7 @@ void loadConfig(){
   
   //len: 15+225=240
   //addr += EEPROM.get(addr, mqttServer);
-  for (int i = 225; i < 240; ++i)
+  for (int i = 224; i < 239; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServer += char(EEPROM.read(i)); // Ignore spaces
@@ -168,7 +168,7 @@ void loadConfig(){
 
   //len: 32+240=272
   //addr += EEPROM.get(addr, mqttServerUserName);
-  for (int i = 240; i < 272; ++i)
+  for (int i = 239; i < 271; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServerUserName += char(EEPROM.read(i)); // Ignore spaces
@@ -178,7 +178,7 @@ void loadConfig(){
 
   //len: 64+272=336
   //addr += EEPROM.get(addr, mqttServerPassword);
-  for (int i = 272; i < 336; ++i)
+  for (int i = 271; i < 335; ++i)
     {
       temp=EEPROM.read(i);
       if(temp!="0") mqttServerPassword += char(EEPROM.read(i)); // Ignore spaces
@@ -237,7 +237,7 @@ void launchWeb(int webtype) {
           Serial.println(WiFi.softAPIP());
           server.on("/", webHandleConfig);
           server.on("/a", webHandleConfigSave);          
-        } else {
+        }// else {
           //setup DNS since we are a client in WiFi net
          // if (!mdns.begin((char*) FQDN.c_str(), WiFi.localIP())) {
           //  Serial.println("Error setting up MDNS responder!");
@@ -247,31 +247,32 @@ void launchWeb(int webtype) {
         //  } else {
         //    Serial.println("mDNS responder started");
        //   }          
-          Serial.println(WiFi.localIP());
-          server.on("/", webHandleRoot);  
-          server.on("/cleareeprom", webHandleClearRom);
-          server.on("/gpio", webHandleGpio);
-        }
+       //   Serial.println(WiFi.localIP());
+       //   server.on("/", webHandleRoot);  
+       //   server.on("/cleareeprom", webHandleClearRom);
+       //   server.on("/gpio", webHandleGpio);
+      //  }
         //server.onNotFound(webHandleRoot);
-        server.begin();
-        Serial.println("Web server started");   
-        webtypeGlob=webtype; //Store global to use in loop()
-      } else if(webtype!=1 && iotMode==1){ // in MQTT and not in config mode     
+     //   server.begin();
+     //   Serial.println("Web server started");   
+      //  webtypeGlob=webtype; //Store global to use in loop()
+      } else if (webtype != 1 && iotMode == 1){ // in MQTT and not in config mode     
         mqttClient.setBrokerDomain((char*)mqttServer.c_str());
         mqttClient.setPort(1883);
         mqttClient.setCallback(mqtt_arrived);
         mqttClient.setClient(wifiClient);
         if (WiFi.status() == WL_CONNECTED){
-          if (!connectMQTT()){
-              delay(2000);
-              if (!connectMQTT()){                            
-                Serial.println("Could not connect MQTT.");
-                Serial.println("Starting web server instead.");
-                iotMode=0;
-                launchWeb(0);
-                webtypeGlob=webtype;
-              }
-            }                    
+          connectMQTT();
+          //if (!connectMQTT()){
+              //delay(2000);
+              //if (!connectMQTT()){                            
+               // Serial.println("Could not connect MQTT.");
+               // Serial.println("Starting web server instead.");
+               // iotMode=0;
+               // launchWeb(0);
+               // webtypeGlob=webtype;
+              //}
+           // }                    
           }
     }
 }
@@ -283,10 +284,9 @@ void webHandleConfig(){
   
   uint8_t mac[6];
   WiFi.macAddress(mac);
-  clientName += "-";
-  clientName += macToStr(mac);
+  String ssidClintName = ssid + "-" + macToStr(mac);
   
-  s = "Configuration of " + clientName + " at ";
+  s = "Configuration of " + ssidClintName + " at ";
   s += ipStr;
   s += "<p>";
   s += st;
@@ -303,13 +303,6 @@ void webHandleConfig(){
   s += "\r\n\r\n";
   Serial.println("Sending 200");  
   server.send(200, "text/html", s); 
-}
-
-String replaceSpecialChars(String str) {
-  str.replace("%40", "@");
-  str.replace("%20", " ");
-  str.replace("%2F","/");
-  return str;
 }
 
 void webHandleConfigSave(){
@@ -331,10 +324,10 @@ void webHandleConfigSave(){
   Serial.println(qpass);
   Serial.println("");
 
-  String qiot;
-  qiot = server.arg("iot");
-  Serial.println(qiot);
-  Serial.println("");
+ // String qiot;
+ // qiot = server.arg("iot");
+ // Serial.println(qiot);
+ // Serial.println("");
   
   String qsubTop;
   qsubTop = server.arg("subtop");
@@ -388,20 +381,20 @@ void webHandleConfigSave(){
     }  
   Serial.println("");
     
-  Serial.println("writing eeprom iot."); 
+  //Serial.println("writing eeprom iot."); 
   //addr += EEPROM.put(addr, qiot);
-  for (int i = 0; i < qiot.length(); ++i)
-    {
-      EEPROM.write(96+i, qiot[i]);
-      Serial.print(qiot[i]); 
-    } 
-  Serial.println("");
+ // for (int i = 0; i < qiot.length(); ++i)
+ //   {
+  //    EEPROM.write(96+i, qiot[i]);
+  //    Serial.print(qiot[i]); 
+  //  } 
+  //Serial.println("");
     
   Serial.println("writing eeprom subTop."); 
   //addr += EEPROM.put(addr, qsubTop);
   for (int i = 0; i < qsubTop.length(); ++i)
     {
-      EEPROM.write(97+i, qsubTop[i]);
+      EEPROM.write(96+i, qsubTop[i]);
       Serial.print(qsubTop[i]); 
     } 
   Serial.println("");
@@ -410,7 +403,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qpubTop);
   for (int i = 0; i < qpubTop.length(); ++i)
     {
-      EEPROM.write(161+i, qpubTop[i]);
+      EEPROM.write(160+i, qpubTop[i]);
       Serial.print(qpubTop[i]); 
     } 
   Serial.println("");
@@ -419,7 +412,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttip);
   for (int i = 0; i < qmqttip.length(); ++i)
     {
-      EEPROM.write(225+i, qmqttip[i]);
+      EEPROM.write(224+i, qmqttip[i]);
       Serial.print(qmqttip[i]); 
     } 
   Serial.println("");  
@@ -428,7 +421,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttuser);
   for (int i = 0; i < qmqttuser.length(); ++i)
     {
-      EEPROM.write(240+i, qmqttuser[i]);
+      EEPROM.write(239+i, qmqttuser[i]);
       Serial.print(qmqttuser[i]); 
     } 
   Serial.println("");  
@@ -437,7 +430,7 @@ void webHandleConfigSave(){
   //addr += EEPROM.put(addr, qmqttpass);
   for (int i = 0; i < qmqttpass.length(); ++i)
     {
-      EEPROM.write(272+i, qmqttpass[i]);
+      EEPROM.write(271+i, qmqttpass[i]);
       Serial.print(qmqttpass[i]); 
     } 
   Serial.println("");  
@@ -449,48 +442,48 @@ void webHandleConfigSave(){
   system_restart();
 }
 
-void webHandleRoot(){
-  String s;
-  s = "<p>Hello from ESP8266";
-  s += "</p>";
-  s += "<a href=\"/gpio\">Controle GPIO</a><br />";
-  s += "<a href=\"/cleareeprom\">Clear settings an boot into Config mode</a><br />";
-  s += "\r\n\r\n";
-  Serial.println("Sending 200");  
-  server.send(200, "text/html", s); 
-}
+//void webHandleRoot(){
+//  String s;
+//  s = "<p>Hello from ESP8266";
+//  s += "</p>";
+//  s += "<a href=\"/gpio\">Controle GPIO</a><br />";
+//  s += "<a href=\"/cleareeprom\">Clear settings an boot into Config mode</a><br />";
+//  s += "\r\n\r\n";
+//  Serial.println("Sending 200");  
+//  server.send(200, "text/html", s); 
+//}
 
-void webHandleClearRom(){
-  String s;
-  s = "<p>Clearing the EEPROM and reset to configure new wifi<p>";
-  s += "</html>\r\n\r\n";
-  Serial.println("Sending 200"); 
-  server.send(200, "text/html", s); 
-  Serial.println("clearing eeprom");
-  clearEEPROM();
-  delay(10);
-  Serial.println("Done, restarting!");
-  system_restart();
-}
+//void webHandleClearRom(){
+//  String s;
+//  s = "<p>Clearing the EEPROM and reset to configure new wifi<p>";
+//  s += "</html>\r\n\r\n";
+//  Serial.println("Sending 200"); 
+//  server.send(200, "text/html", s); 
+//  Serial.println("clearing eeprom");
+//  clearEEPROM();
+//  delay(10);
+//  Serial.println("Done, restarting!");
+//  system_restart();
+//}
 
-void webHandleGpio(){
-  String s;
-   // Set GPIO according to the request
-    if (server.arg("state")=="1" || server.arg("state")=="0" ) {
-      int state = server.arg("state").toInt();
-      digitalWrite(outPin, state);
-      Serial.print("Light switched via web request to  ");      
-      Serial.println(state);      
-    }
-    s = "Light is now ";
-    s += (digitalRead(outPin))?"on":"off";
-    s += "<p>Change to <form action='gpio'><input type='radio' name='state' value='1' ";
-    s += (digitalRead(outPin))?"checked":"";
-    s += ">On<input type='radio' name='state' value='0' ";
-    s += (digitalRead(outPin))?"":"checked";
-    s += ">Off <input type='submit' value='Submit'></form></p>";   
-    server.send(200, "text/html", s);    
-}
+//void webHandleGpio(){
+//  String s;
+//   // Set GPIO according to the request
+//    if (server.arg("state")=="1" || server.arg("state")=="0" ) {
+//      int state = server.arg("state").toInt();
+//      digitalWrite(outPin, state);
+//      Serial.print("Light switched via web request to  ");      
+//      Serial.println(state);      
+//    }
+//    s = "Light is now ";
+//    s += (digitalRead(outPin))?"on":"off";
+//    s += "<p>Change to <form action='gpio'><input type='radio' name='state' value='1' ";
+//    s += (digitalRead(outPin))?"checked":"";
+//    s += ">On<input type='radio' name='state' value='0' ";
+//    s += (digitalRead(outPin))?"":"checked";
+//    s += ">Off <input type='submit' value='Submit'></form></p>";   
+//    server.send(200, "text/html", s);    
+//}
 
 void setupAP(void) {
   led_timer.attach(1, led_handle);
@@ -610,6 +603,13 @@ String macToStr(const uint8_t* mac) {
   return result;
 }
 
+String replaceSpecialChars(String str) {
+  str.replace("%40", "@");
+  str.replace("%20", " ");
+  str.replace("%2F","/");
+  return str;
+}
+
 //-------------------------------- MQTT functions ---------------------------
 boolean connectMQTT(){
   if (mqttClient.connected()){
@@ -617,17 +617,17 @@ boolean connectMQTT(){
     return true;
   }  
   digitalWrite(mqttLed, LOW);
+ 
   uint8_t mac[6];
   WiFi.macAddress(mac);
-  clientName += "-";
-  clientName += macToStr(mac);
+  String mqttClintName = ssid + "-" + macToStr(mac);
   
   Serial.print("Connecting to MQTT server ");
   Serial.print(mqttServer);
   Serial.print(" as ");
-  Serial.println(clientName);
+  Serial.println(mqttClintName);
   
-  if (mqttClient.connect((char*) clientName.c_str(), (char*) mqttServerUserName.c_str(), (char*) mqttServerPassword.c_str())) {
+  if (mqttClient.connect((char*) mqttClintName.c_str(), (char*) mqttServerUserName.c_str(), (char*) mqttServerPassword.c_str())) {
     Serial.println("Connected to MQTT broker");
     if(mqttClient.subscribe((char*)subTopic.c_str())){
       Serial.println("Subsribed to topic.");
@@ -717,12 +717,12 @@ void loop() {
   if(debug==1) Serial.println("DEBUG: eeprom reset check passed");  
   if (WiFi.status() == WL_CONNECTED || webtypeGlob == 1){
     if(debug==1) Serial.println("DEBUG: loop() wifi connected & webServer ");
-    if (iotMode==0 || webtypeGlob == 1){
+    if (webtypeGlob == 1){
       if(debug==1) Serial.println("DEBUG: loop() Web mode requesthandling ");
       server.handleClient();
       //mdns.update(); we get problems with this.
       delay(10);
-    } else if (iotMode==1 && webtypeGlob != 1){
+    } else if (webtypeGlob != 1){
           if(debug==1) Serial.println("DEBUG: loop() MQTT mode requesthandling ");
           if (!connectMQTT()){
               delay(200);
