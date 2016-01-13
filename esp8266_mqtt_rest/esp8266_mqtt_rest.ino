@@ -47,8 +47,8 @@ const int inPin = 12;  // input pin (push button)
 
 const int restartDelay = 3; //minimal time for button press to reset in sec
 const int humanpressDelay = 50; // the delay in ms untill the press should be handled as a normal push by human. Button debouce. !!! Needs to be less than restartDelay & resetDelay!!!
-const int resetDelay = 20; //Minimal time for button press to reset all settings and boot to config mode in sec
-const int configDelay = 10;
+const int resetDelay = 10; //Minimal time for button press to reset all settings and boot to config mode in sec
+//const int configDelay = 10;
 
 const int debug = 0; //Set to 1 to get more log to serial
 //##### Object instances ##### 
@@ -72,7 +72,7 @@ String st; //WiFi Stations HTML list
 char buf[40]; //For MQTT data recieve
 
 //To be read from EEPROM Config
-String esid;
+String esid = "";
 String epass = "";
 String pubTopic;
 String subTopic;
@@ -82,22 +82,22 @@ String mqttServerPassword = "";
   
 //-------------- void's -------------------------------------------------------------------------------------
 void setup() {
-	Serial.begin(115200);
-	delay(10);
-	// prepare OUTPUT pins
-	digitalWrite(outPin, LOW);
-	pinMode(outPin, OUTPUT);
-	digitalWrite(wifiLed, LOW);
-	pinMode(wifiLed, OUTPUT);
-	digitalWrite(mqttLed, LOW);
-	pinMode(mqttLed, OUTPUT);
-	btn_timer.attach(0.05, btn_handle);
-	loadConfig();
-	if(debug==1) Serial.println("DEBUG: loadConfig() passed");
-	// Connect to WiFi network
-	initWiFi();
-	if(debug==1) Serial.println("DEBUG: initWiFi() passed");
-	if(debug==1) Serial.println("DEBUG: Starting the main loop");
+  Serial.begin(115200);
+  delay(10);
+  // prepare OUTPUT pins
+  digitalWrite(outPin, LOW);
+  pinMode(outPin, OUTPUT);
+  digitalWrite(wifiLed, LOW);
+  pinMode(wifiLed, OUTPUT);
+  digitalWrite(mqttLed, LOW);
+  pinMode(mqttLed, OUTPUT);
+  btn_timer.attach(0.05, btn_handle);
+  loadConfig();
+  if(debug==1) Serial.println("DEBUG: loadConfig() passed");
+  // Connect to WiFi network
+  initWiFi();
+  if(debug==1) Serial.println("DEBUG: initWiFi() passed");
+  if(debug==1) Serial.println("DEBUG: Starting the main loop");
 }
 
 void loadConfig(){
@@ -192,7 +192,7 @@ void initWiFi(){
   Serial.println();
   Serial.println("Startup");
   esid.trim();
-  if ( esid.length() > 1 ) {
+  if ( esid != "" ) {
       // test esid 
       WiFi.disconnect();
       delay(100);
@@ -205,8 +205,8 @@ void initWiFi(){
           return;
       }
   } else {
-	Serial.println("Opening AP");
-	setupAP();
+  Serial.println("Opening AP");
+  setupAP();
   }
 }
 
@@ -215,9 +215,9 @@ int testWifi(void) {
   Serial.println("Wifi test...");  
   while ( c < 30 ) {
     if (WiFi.status() == WL_CONNECTED) { 
-		digitalWrite(wifiLed, HIGH);
-		return(20); 
-	} 
+    digitalWrite(wifiLed, HIGH);
+    return(20); 
+  } 
     delay(500);
     Serial.print(".");    
     c++;
@@ -290,9 +290,8 @@ void webHandleConfig(){
   s += ipStr;
   s += "<p>";
   s += st;
-  s += "<form method='post' action='a'>";
-  s += "<label>SSID: </label><input name='ssid' length=32></br>";
-  s += "<label> Pass: </label><input name='pass' type='password' length=64></br>";
+  s += "<form method='get' action='a'>";
+  s += "<label>SSID: </label><input name='ssid' length=32><label>Pass: </label><input name='pass' type='password' length=64></br>";
   s += "<label>IOT mode: </label><input type='radio' name='iot' value='0'> HTTP<input type='radio' name='iot' value='1' checked> MQTT</br>";
   s += "MQTT parameters:</br>";
   s += "<label>MQTT Broker IP/DNS: </label><input name='host' length=15></br>";
@@ -544,7 +543,7 @@ void setupAP(void) {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   String ssidClintName = ssid + "-" + macToStr(mac);
-	
+  
   WiFi.softAP((char*) ssidClintName.c_str());
   WiFi.begin((char*) ssidClintName.c_str()); // not sure if need but works
   Serial.print("Access point started with name ");
@@ -553,7 +552,7 @@ void setupAP(void) {
 }
 
 void led_handle() {
-	digitalWrite(wifiLed, !digitalRead(wifiLed));
+  digitalWrite(wifiLed, !digitalRead(wifiLed));
 }
 
 void btn_handle() {
@@ -572,16 +571,11 @@ void btn_handle() {
       Serial.println(!digitalRead(outPin));
       digitalWrite(outPin, !digitalRead(outPin)); 
       if(iotMode==1 && mqttClient.connected()) toPub=1;
-    } else if (count > (restartDelay/0.05) && count <= (configDelay/0.05)){ //pressed 3 secs (60*0.05s)
+    } else if (count > (restartDelay/0.05) && count <= (resetDelay/0.05)){ //pressed 3 secs (60*0.05s)
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
       Serial.println(" Sec. Restarting!"); 
       system_restart();
-    }  else if (count > (configDelay/0.05) && count <= (resetDelay/0.05)){ //pressed 10 secs
-      Serial.print("button pressed "); 
-      Serial.print(count*0.05); 
-      Serial.println("Opening AP");
-		setupAP();
       }else if (count > (resetDelay/0.05)){ //pressed 20 secs
       Serial.print("button pressed "); 
       Serial.print(count*0.05); 
@@ -589,7 +583,7 @@ void btn_handle() {
       Serial.println(" Clearing EEPROM and resetting!");       
       eepromToClear=1;
       }
-	 
+   
     count=0; //reset since we are at high
   }
 }
@@ -619,7 +613,7 @@ String macToStr(const uint8_t* mac) {
 //-------------------------------- MQTT functions ---------------------------
 boolean connectMQTT(){
   if (mqttClient.connected()){
-	  digitalWrite(mqttLed, HIGH);
+    digitalWrite(mqttLed, HIGH);
     return true;
   }  
   digitalWrite(mqttLed, LOW);
@@ -744,3 +738,4 @@ void loop() {
   }
     if(debug==1) Serial.println("DEBUG: loop() end");
 }
+
