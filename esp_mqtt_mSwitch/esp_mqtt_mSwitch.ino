@@ -29,15 +29,16 @@
 #include <EEPROM.h>
 #include <Ticker.h>
 #include <PubSubClient.h>
-#include <RCSwitch.h>
+//#include <RCSwitch.h>
 
 extern "C" {
 #include "user_interface.h" //Needed for the reset command
 }
 
 #define MQTT_PORT 1883
-#define PULSE_LENGTH 292
-#define RC_BITS 24
+//#define PULSE_LENGTH 292
+//#define RC_BITS 24
+#define RELAY_DELAY_TIME 250
 
 //***** Settings declare *********************************************************************************************************
 String ssid = "ESP"; //The ssid when in AP mode
@@ -45,10 +46,10 @@ String clientName = "ESP"; //The MQTT ID -> MAC adress will be added to make it 
 //String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
 //int iotMode=1; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
-const int outPin = 13; //output pin
-const int wifiLed = 16; //led light indicator pin for wifi connected status
+const int outPin = 12; //output pin
+const int wifiLed = 13; //led light indicator pin for wifi connected status
 //const int mqttLed = 14; //led light indicator pin for mqtt connected status
-const int inPin = 12;  // input pin (push button)
+const int inPin = 0;  // input pin (push button)
 
 const int restartDelay = 3; //minimal time for button press to reset in sec
 const int humanpressDelay = 50; // the delay in ms untill the press should be handled as a normal push by human. Button debouce. !!! Needs to be less than restartDelay & resetDelay!!!
@@ -61,7 +62,7 @@ const int debug = 0; //Set to 1 to get more log to serial
 ESP8266WebServer server(80);
 WiFiClient wifiClient;
 PubSubClient mqttClient;
-RCSwitch mySwitch = RCSwitch();
+//RCSwitch mySwitch = RCSwitch();
 Ticker btn_timer;
 Ticker led_timer;
 
@@ -93,8 +94,8 @@ void setup() {
   Serial.begin(115200);
   delay(10);
   // prepare OUTPUT pins
-  //digitalWrite(outPin, LOW);
-  //p/inMode(outPin, OUTPUT);
+  digitalWrite(outPin, LOW);
+  pinMode(outPin, OUTPUT);
   digitalWrite(wifiLed, LOW);
   pinMode(wifiLed, OUTPUT);
   //digitalWrite(mqttLed, LOW);
@@ -102,8 +103,8 @@ void setup() {
   pinMode(inPin, INPUT_PULLUP);
 
   btn_timer.attach(0.05, btn_handle);
-  mySwitch.enableTransmit(outPin);
-  mySwitch.setPulseLength(PULSE_LENGTH);
+  //mySwitch.enableTransmit(outPin);
+ // mySwitch.setPulseLength(PULSE_LENGTH);
 
   // Load the configuration from the eeprom
   loadConfig();
@@ -199,8 +200,9 @@ void launchWeb(int webtype) {
     server.begin();
     Serial.println("HTTP server started");
   } else {
-    mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
-    //mqttClient.setPort(MQTT_PORT);
+    mqttClient.setBrokerDomain((char*)mqttServer.c_str());
+    //mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
+    mqttClient.setPort(MQTT_PORT);
     mqttClient.setCallback(mqtt_arrived);
     mqttClient.setClient(wifiClient);
     connectMQTT();
@@ -373,17 +375,10 @@ void btn_handle() {
     ++count; // one count is 50ms
   } else {
     if (count > 1 && count < humanpressDelay / 5) { //push between 50 ms and 1 sec
-      // Serial.print("button pressed ");
-      // Serial.print(count*0.05);
-      // Serial.println(" Sec.");
-
-      // Serial.print("Light is ");
-      // Serial.println(digitalRead(outPin));
-
-      // Serial.print("Switching light to ");
-      // Serial.println(!digitalRead(outPin));
-      // digitalWrite(outPin, !digitalRead(outPin));
-      // toPub=1;
+      Serial.print("button pressed ");
+      Serial.print(count * 0.05);
+      Serial.println(" Sec.");
+      changeRelayState();
     } else if (count > (restartDelay / 0.05) && count <= (resetDelay / 0.05)) { //pressed 3 secs (60*0.05s)
       Serial.print("button pressed ");
       Serial.print(count * 0.05);
@@ -496,18 +491,26 @@ void mqtt_arrived(char* subTopic, byte* payload, unsigned int length) { // handl
   buf[i] = '\0';
   String msgString = String(buf);
   Serial.println(" message: " + msgString);
-  unsigned long data = msgString.toInt();
-  if (data > 0) {
-    Serial.println("sending rf data ...");
-    mySwitch.send(data, RC_BITS);
+  
+  if (msgString == "1" || msgString == "on" || msgString == "true")
+  {
+    changeRelayState();
   }
 
-  for (i = 0; i < length; i++) {
+	// blink the led few times so we know data arrived
+  for (i = 0; i < 10; i++) {
     digitalWrite(wifiLed, !digitalRead(wifiLed));
     delay(100);
   }
   digitalWrite(wifiLed, HIGH);
 } 
+
+void changeRelayState() {
+    Serial.println("changing relay state");
+    digitalWrite(outPin, HIGH);
+	delay(250);
+    digitalWrite(outPin, LOW);
+}
 
 //-------------------------------- Main loop ---------------------------
 void loop() {
