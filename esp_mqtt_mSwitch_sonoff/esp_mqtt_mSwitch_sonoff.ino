@@ -91,7 +91,7 @@ String subTopic;
 
 //-------------- void's -------------------------------------------------------------------------------------
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   delay(10);
   // prepare OUTPUT pins
   digitalWrite(outPin, LOW);
@@ -100,6 +100,7 @@ void setup() {
   pinMode(wifiLed, OUTPUT);
   //digitalWrite(mqttLed, LOW);
   //pinMode(mqttLed, OUTPUT);
+  digitalWrite(inPin, HIGH);
   pinMode(inPin, INPUT_PULLUP);
 
   btn_timer.attach(0.05, btn_handle);
@@ -200,9 +201,10 @@ void launchWeb(int webtype) {
     server.begin();
     Serial.println("HTTP server started");
   } else {
-    mqttClient.setBrokerDomain((char*)mqttServer.c_str());
-    //mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
-    mqttClient.setPort(MQTT_PORT);
+    //PubSubClient mqttClient((char*)mqttServer.c_str(), 1883, mqtt_arrived, wifiClient);
+    //mqttClient.setBrokerDomain((char*)mqttServer.c_str());
+     mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
+   // mqttClient.setPort(MQTT_PORT);
     mqttClient.setCallback(mqtt_arrived);
     mqttClient.setClient(wifiClient);
     connectMQTT();
@@ -494,7 +496,9 @@ void mqtt_arrived(char* subTopic, byte* payload, unsigned int length) { // handl
   
   if (msgString == "1" || msgString == "on" || msgString == "true")
   {
-    changeRelayState();
+    digitalWrite(outPin, HIGH);
+  } else if (msgString == "0" || msgString == "off" || msgString == "false") {
+    digitalWrite(outPin, LOW);
   }
 
 	// blink the led few times so we know data arrived

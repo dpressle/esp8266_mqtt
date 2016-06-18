@@ -42,10 +42,10 @@ String clientName = "ESP"; //The MQTT ID -> MAC adress will be added to make it 
 //String FQDN ="Esp8266.local"; //The DNS hostname - Does not work yet?
 //int iotMode=1; //IOT mode: 0 = Web control, 1 = MQTT (No const since it can change during runtime)
 //select GPIO's
-const int outPin = 13; //output pin
-const int wifiLed = 16; //led light indicator pin for wifi connected status
+const int outPin = 12; //output pin
+const int wifiLed = 13; //led light indicator pin for wifi connected status
 //const int mqttLed = 14; //led light indicator pin for mqtt connected status
-const int inPin = 12;  // input pin (push button)
+const int inPin = 0;  // input pin (push button)
 
 const int restartDelay = 3; //minimal time for button press to reset in sec
 const int humanpressDelay = 50; // the delay in ms untill the press should be handled as a normal push by human. Button debouce. !!! Needs to be less than restartDelay & resetDelay!!!
