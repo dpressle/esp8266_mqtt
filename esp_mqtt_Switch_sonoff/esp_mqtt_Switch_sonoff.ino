@@ -29,12 +29,16 @@
 #include <EEPROM.h>
 #include <Ticker.h>
 #include <PubSubClient.h>
+//#include <RCSwitch.h>
 
 extern "C" {
 #include "user_interface.h" //Needed for the reset command
 }
 
 #define MQTT_PORT 1883
+//#define PULSE_LENGTH 292
+//#define RC_BITS 24
+#define RELAY_DELAY_TIME 250
 
 //***** Settings declare *********************************************************************************************************
 String ssid = "ESP"; //The ssid when in AP mode
@@ -58,15 +62,17 @@ const int debug = 0; //Set to 1 to get more log to serial
 ESP8266WebServer server(80);
 WiFiClient wifiClient;
 PubSubClient mqttClient;
+//RCSwitch mySwitch = RCSwitch();
 Ticker btn_timer;
 Ticker led_timer;
 
 //##### Flags ##### They are needed because the loop needs to continue and cant wait for long tasks!
 int rstNeed = 0; // Restart needed to apply new settings
-int toPub = 0; // determine if state should be published.
+//int toPub=0; // determine if state should be published.
 int eepromToClear = 0; // determine if EEPROM should be cleared.
 
 //##### Global vars #####
+int restartFlag = 0;
 int webtypeGlob;
 int current; //Current state of the button
 unsigned long count = 0; //Button press time counter
@@ -80,23 +86,26 @@ String mqttServer = "";
 String mqttServerUserName = "";
 String mqttServerPassword = "";
 String subTopic;
-String pubTopic;
+//String pubTopic;
+//String pulseLength;
 
 //-------------- void's -------------------------------------------------------------------------------------
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   delay(10);
   // prepare OUTPUT pins
   digitalWrite(outPin, LOW);
   pinMode(outPin, OUTPUT);
-
   digitalWrite(wifiLed, LOW);
   pinMode(wifiLed, OUTPUT);
   //digitalWrite(mqttLed, LOW);
   //pinMode(mqttLed, OUTPUT);
+  digitalWrite(inPin, HIGH);
   pinMode(inPin, INPUT_PULLUP);
 
   btn_timer.attach(0.05, btn_handle);
+  //mySwitch.enableTransmit(outPin);
+ // mySwitch.setPulseLength(PULSE_LENGTH);
 
   // Load the configuration from the eeprom
   loadConfig();
@@ -137,11 +146,6 @@ void loadConfig() {
   Serial.print("MQTT subscribe topic: ");
   subTopic = readEeprom(224, 64);
   Serial.println(subTopic);
-
-  //len: 64+288=352
-  Serial.print("MQTT publish topic: ");
-  pubTopic = readEeprom(288, 64);
-  Serial.println(pubTopic);
 
   EEPROM.end();
 }
@@ -197,9 +201,11 @@ void launchWeb(int webtype) {
     server.begin();
     Serial.println("HTTP server started");
   } else {
-    mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
+    //PubSubClient mqttClient((char*)mqttServer.c_str(), MQTT_PORT, mqtt_arrived, wifiClient);
+    //mqttClient.setBrokerDomain((char*)mqttServer.c_str());
     //mqttClient.setPort(MQTT_PORT);
-    mqttClient.setCallback(mqtt_arrived);
+    mqttClient.setServer((char*)mqttServer.c_str(), MQTT_PORT);
+    //mqttClient.setCallback(mqtt_arrived);
     mqttClient.setClient(wifiClient);
     connectMQTT();
   }
@@ -225,7 +231,6 @@ void webHandleConfig() {
   s += "<label>Broker user name: </label><input name='mqttuser' length=32></br>";
   s += "<label>Broker password: </label><input name='mqttpass' type='password' length=64></br>";
   s += "<label>Subscribe topic: </label><input name='subtop' length=64></br>";
-  s += "<label>Publish topic: </label><input name='pubtop' length=64></br>";
   s += "<input type='submit'></form></p>";
   s += "\r\n\r\n";
   Serial.println("Sending 200");
@@ -251,6 +256,11 @@ void webHandleConfigSave() {
   Serial.println(qpass);
   Serial.println("");
 
+  String qsubTop = server.arg("subtop");
+  qsubTop = replaceSpecialChars(qsubTop);
+  Serial.println(qsubTop);
+  Serial.println("");
+
   String qmqttip = server.arg("host");
   qmqttip = replaceSpecialChars(qmqttip);
   Serial.println(qmqttip);
@@ -265,17 +275,6 @@ void webHandleConfigSave() {
   qmqttpass = replaceSpecialChars(qmqttpass);
   Serial.println(qmqttpass);
   Serial.println("");
-
-  String qsubTop = server.arg("subtop");
-  qsubTop = replaceSpecialChars(qsubTop);
-  Serial.println(qsubTop);
-  Serial.println("");
-
-  String qpubTop = server.arg("pubtop");
-  qpubTop = replaceSpecialChars(qpubTop);
-  Serial.println(qpubTop);
-  Serial.println("");
-
 
   EEPROM.begin(512);
   delay(10);
@@ -302,10 +301,6 @@ void webHandleConfigSave() {
 
   Serial.println("writing eeprom subTop.");
   writeEeprom(224, qsubTop);
-  Serial.println("");
-
-  Serial.println("writing eeprom pubTop.");
-  writeEeprom(288, qpubTop);
   Serial.println("");
 
   EEPROM.commit();
@@ -385,13 +380,12 @@ void btn_handle() {
       Serial.print("button pressed ");
       Serial.print(count * 0.05);
       Serial.println(" Sec.");
-      changeRelayState(!digitalRead(outPin));//toggle the relay state
-      toPub = 1;
+      changeRelayState();
     } else if (count > (restartDelay / 0.05) && count <= (resetDelay / 0.05)) { //pressed 3 secs (60*0.05s)
       Serial.print("button pressed ");
       Serial.print(count * 0.05);
       Serial.println(" Sec. Restarting!");
-      system_restart();
+      restartFlag = 1;
     } else if (count > (resetDelay / 0.05)) { //pressed 5 secs
       Serial.print("button pressed ");
       Serial.print(count * 0.05);
@@ -452,16 +446,6 @@ String replaceSpecialChars(String str) {
   return str;
 }
 
-void changeRelayState(int state) {
-  if (state == 1) {
-    Serial.println("changing state to HIGH");
-    digitalWrite(outPin, HIGH);
-  } else {
-    Serial.println("changing state to LOW");
-    digitalWrite(outPin, LOW);
-  }
-}
-
 //-------------------------------- MQTT functions ---------------------------
 boolean connectMQTT() {
   if (mqttClient.connected()) {
@@ -484,9 +468,8 @@ boolean connectMQTT() {
     } else {
       Serial.println("NOT subsribed to topic!");
     }
-    digitalWrite(wifiLed, HIGH);
     led_timer.detach();
-    
+    digitalWrite(wifiLed, HIGH);
     return true;
   } else {
     Serial.println("MQTT connect failed! ");
@@ -510,42 +493,27 @@ void mqtt_arrived(char* subTopic, byte* payload, unsigned int length) { // handl
   buf[i] = '\0';
   String msgString = String(buf);
   Serial.println(" message: " + msgString);
-
+  
   if (msgString == "1" || msgString == "on" || msgString == "true")
-    changeRelayState(1);
-  else if (msgString == "0" || msgString == "off" || msgString == "false")
-    changeRelayState(0);
-  toPub = 1;
-  for (i = 0; i < length; i++) {
+  {
+    digitalWrite(outPin, HIGH);
+  } else if (msgString == "0" || msgString == "off" || msgString == "false") {
+    digitalWrite(outPin, LOW);
+  }
+
+	// blink the led few times so we know data arrived
+  for (i = 0; i < 10; i++) {
     digitalWrite(wifiLed, !digitalRead(wifiLed));
     delay(100);
   }
   digitalWrite(wifiLed, HIGH);
-}
+} 
 
-boolean pubState() { //Publish the current state of the light
-  if (!connectMQTT()) {
-    delay(100);
-    if (!connectMQTT) {
-      Serial.println("Could not connect MQTT.");
-      Serial.println("Publish state NOK");
-      return false;
-    }
-  }
-  if (mqttClient.connected()) {
-    String state = (digitalRead(outPin)) ? "1" : "0";
-    Serial.println("To publish state " + state );
-    if (mqttClient.publish((char*) pubTopic.c_str(), (char*) state.c_str())) {
-      Serial.println("Publish state OK");
-      return true;
-    } else {
-      Serial.println("Publish state NOK");
-      return false;
-    }
-  } else {
-    Serial.println("Publish state NOK");
-    Serial.println("No MQTT connection.");
-  }
+void changeRelayState() {
+    Serial.println("changing relay state");
+    digitalWrite(outPin, HIGH);
+	delay(250);
+    digitalWrite(outPin, LOW);
 }
 
 //-------------------------------- Main loop ---------------------------
@@ -555,6 +523,9 @@ void loop() {
     delay(1000);
     system_restart();
   }
+  if (restartFlag == 1) {
+    system_restart();
+  }
   if (webtypeGlob == 1) {
     server.handleClient();
     //mdns.update(); we get problems with this.
@@ -562,9 +533,6 @@ void loop() {
   } else if (WiFi.status() == WL_CONNECTED) {
     if (!mqttClient.connected())
       connectMQTT();
-    if (toPub == 1)
-      pubState();
-    toPub = 0;
     mqttClient.loop();
   } else {
     delay(1000);
